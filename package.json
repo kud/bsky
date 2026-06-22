@@ -1,0 +1,41 @@
+{
+  "name": "@kud/bsky",
+  "version": "0.1.0",
+  "description": "A Bluesky (AT Protocol) client library for Node — post, thread, reply, quote, engage, read, and search",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kud/bsky.git"
+  },
+  "homepage": "https://kud.io/projects/bsky",
+  "keywords": [
+    "bluesky",
+    "atproto",
+    "atprotocol",
+    "social",
+    "client"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.0",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3"
+  }
+}
