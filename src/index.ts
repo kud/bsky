@@ -1,4 +1,5 @@
-export * from "./session.js"
+export { PDS, getSession, xrpc } from "./session.js"
+export type { Session } from "./session.js"
 export * from "./resolve.js"
 export * from "./facets.js"
 export * from "./posts.js"
