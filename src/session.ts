@@ -1,8 +1,5 @@
 export const PDS = "https://bsky.social"
 
-const HANDLE = process.env.BLUESKY_HANDLE
-const APP_PASSWORD = process.env.BLUESKY_APP_PASSWORD
-
 export type Session = {
   accessJwt: string
   refreshJwt: string
@@ -10,19 +7,32 @@ export type Session = {
   handle: string
 }
 
+type Credentials = { handle: string; password: string }
+
 let cached: Session | undefined
 let renewing: Promise<Session> | undefined
+let credentials: Credentials | undefined
 
-const login = async (): Promise<Session> => {
-  if (!HANDLE || !APP_PASSWORD) {
+/** Read the credentials from the environment on first use, never at import, so the module has no side effects. */
+const readCredentials = (): Credentials => {
+  if (credentials) return credentials
+  const handle = process.env.BLUESKY_HANDLE
+  const password = process.env.BLUESKY_APP_PASSWORD
+  if (!handle || !password) {
     throw new Error(
       "Missing credentials. Set BLUESKY_HANDLE and BLUESKY_APP_PASSWORD (an App Password from Bluesky → Settings → App Passwords).",
     )
   }
+  credentials = { handle, password }
+  return credentials
+}
+
+const login = async (): Promise<Session> => {
+  const { handle, password } = readCredentials()
   const res = await fetch(`${PDS}/xrpc/com.atproto.server.createSession`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ identifier: HANDLE, password: APP_PASSWORD }),
+    body: JSON.stringify({ identifier: handle, password }),
   })
   if (!res.ok)
     throw new Error(`Auth failed (${res.status}): ${await res.text()}`)

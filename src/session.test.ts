@@ -61,6 +61,48 @@ describe("getSession", () => {
   })
 })
 
+describe("environment access", () => {
+  it("reads no environment variable at import, only on the first getSession call", async () => {
+    vi.stubEnv("BLUESKY_HANDLE", "kud.io")
+    vi.stubEnv("BLUESKY_APP_PASSWORD", "app-password")
+    const reads: string[] = []
+    const env = process.env
+    vi.stubGlobal(
+      "process",
+      new Proxy(process, {
+        get: (target, prop, receiver) =>
+          prop === "env"
+            ? new Proxy(env, {
+                get: (e, key) => {
+                  if (typeof key === "string") reads.push(key)
+                  return Reflect.get(e, key)
+                },
+              })
+            : Reflect.get(target, prop, receiver),
+      }),
+    )
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      jsonResponse({ accessJwt: "jwt", did: "did:plc:abc", handle: "kud.io" }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { getSession } = await import("./index.js")
+    expect(reads).toEqual([])
+
+    await getSession()
+    expect(reads).toEqual(
+      expect.arrayContaining(["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"]),
+    )
+    const [, init] = fetchMock.mock.calls[0]!
+    expect(JSON.parse(init?.body as string)).toEqual({
+      identifier: "kud.io",
+      password: "app-password",
+    })
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+})
+
 describe("xrpc", () => {
   it("builds a query string from params, skipping undefined values", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ ok: true }))
