@@ -52,6 +52,19 @@ export const getAuthorFeed = async (
   return feed.map((item) => toFeedPost(item.post))
 }
 
+type ThreadNode =
+  | { $type?: "app.bsky.feed.defs#threadViewPost"; post: RawPost }
+  | { $type: "app.bsky.feed.defs#notFoundPost"; uri: string; notFound: true }
+  | { $type: "app.bsky.feed.defs#blockedPost"; uri: string; blocked: true }
+  | { $type: string; uri?: string; post?: undefined }
+
+const isPost = (node: ThreadNode | undefined): node is { post: RawPost } =>
+  Boolean(node && "post" in node && node.post)
+
+/**
+ * The post followed by its direct replies. Replies that are deleted, blocked
+ * or otherwise unavailable are skipped; an unavailable root post throws.
+ */
 export const getThread = async (
   url: string,
   limit = 25,
@@ -59,11 +72,21 @@ export const getThread = async (
   const { did, rkey } = await parsePostUrl(url)
   const uri = `at://${did}/app.bsky.feed.post/${rkey}`
   const { thread } = await xrpc<{
-    thread: { post: RawPost; replies?: Array<{ post: RawPost }> }
+    thread: ThreadNode & { replies?: ThreadNode[] }
   }>("app.bsky.feed.getPostThread", { params: { uri, depth: 1 } })
+  if (!isPost(thread)) {
+    const reason =
+      "blocked" in thread && thread.blocked
+        ? "is blocked"
+        : "notFound" in thread && thread.notFound
+          ? "was not found"
+          : "is unavailable"
+    throw new Error(`Post ${uri} ${reason}.`)
+  }
   return [
     toFeedPost(thread.post),
     ...(thread.replies ?? [])
+      .filter(isPost)
       .slice(0, limit)
       .map((reply) => toFeedPost(reply.post)),
   ]
