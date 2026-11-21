@@ -1,16 +1,20 @@
 export const PDS = "https://bsky.social"
 
-export type Session = {
+/** The full session as the PDS returns it; the refresh token never leaves this module. */
+type StoredSession = {
   accessJwt: string
   refreshJwt: string
   did: string
   handle: string
 }
 
+/** The session as exposed to callers, without the long-lived refresh token. */
+export type Session = Omit<StoredSession, "refreshJwt">
+
 type Credentials = { handle: string; password: string }
 
-let cached: Session | undefined
-let renewing: Promise<Session> | undefined
+let cached: StoredSession | undefined
+let renewing: Promise<StoredSession> | undefined
 let credentials: Credentials | undefined
 
 /** Read the credentials from the environment on first use, never at import, so the module has no side effects. */
@@ -27,7 +31,7 @@ const readCredentials = (): Credentials => {
   return credentials
 }
 
-const login = async (): Promise<Session> => {
+const login = async (): Promise<StoredSession> => {
   const { handle, password } = readCredentials()
   const res = await fetch(`${PDS}/xrpc/com.atproto.server.createSession`, {
     method: "POST",
@@ -36,13 +40,18 @@ const login = async (): Promise<Session> => {
   })
   if (!res.ok)
     throw new Error(`Auth failed (${res.status}): ${await res.text()}`)
-  cached = (await res.json()) as Session
+  cached = (await res.json()) as StoredSession
   return cached
 }
 
-export const getSession = async (): Promise<Session> => cached ?? login()
+const currentSession = async (): Promise<StoredSession> => cached ?? login()
 
-const refresh = async (stale: Session): Promise<Session> => {
+export const getSession = async (): Promise<Session> => {
+  const { accessJwt, did, handle } = await currentSession()
+  return { accessJwt, did, handle }
+}
+
+const refresh = async (stale: StoredSession): Promise<StoredSession> => {
   const res = await fetch(`${PDS}/xrpc/com.atproto.server.refreshSession`, {
     method: "POST",
     headers: { Authorization: `Bearer ${stale.refreshJwt}` },
@@ -51,12 +60,12 @@ const refresh = async (stale: Session): Promise<Session> => {
     cached = undefined
     return login()
   }
-  cached = (await res.json()) as Session
+  cached = (await res.json()) as StoredSession
   return cached
 }
 
 /** Renew the session after its access token was rejected; refresh first, re-login if that fails. */
-const renewSession = (stale: Session): Promise<Session> => {
+const renewSession = (stale: StoredSession): Promise<StoredSession> => {
   if (cached && cached.accessJwt !== stale.accessJwt)
     return Promise.resolve(cached)
   renewing ??= refresh(stale).finally(() => {
@@ -80,7 +89,7 @@ export const authFetch = async (
   url: string,
   init: RequestInit = {},
 ): Promise<Response> => {
-  const send = (session: Session) =>
+  const send = (session: StoredSession) =>
     fetch(url, {
       ...init,
       headers: {
@@ -88,7 +97,7 @@ export const authFetch = async (
         Authorization: `Bearer ${session.accessJwt}`,
       },
     })
-  const session = await getSession()
+  const session = await currentSession()
   const res = await send(session)
   if (!(await isTokenRejected(res))) return res
   return send(await renewSession(session))

@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest"
+import type { Session } from "./index.js"
 
 const originalHandle = process.env.BLUESKY_HANDLE
 const originalPassword = process.env.BLUESKY_APP_PASSWORD
@@ -58,6 +67,39 @@ describe("getSession", () => {
     const second = await getSession()
     expect(first).toEqual(second)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("public session", () => {
+  it("does not expose the refresh token in the Session type", () => {
+    expectTypeOf<Session>().toEqualTypeOf<{
+      accessJwt: string
+      did: string
+      handle: string
+    }>()
+    expectTypeOf<Session>().not.toHaveProperty("refreshJwt")
+  })
+
+  it("strips the refresh token from what getSession returns", async () => {
+    process.env.BLUESKY_HANDLE = "kud.io"
+    process.env.BLUESKY_APP_PASSWORD = "app-password"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          accessJwt: "jwt",
+          refreshJwt: "refresh",
+          did: "did:plc:abc",
+          handle: "kud.io",
+        }),
+      ),
+    )
+    const { getSession } = await import("./index.js")
+    expect(await getSession()).toEqual({
+      accessJwt: "jwt",
+      did: "did:plc:abc",
+      handle: "kud.io",
+    })
   })
 })
 
