@@ -106,3 +106,111 @@ describe("xrpc", () => {
     ).rejects.toThrow(/app\.bsky\.feed\.getTimeline failed \(500\)/)
   })
 })
+
+describe("session refresh", () => {
+  const response = (body: unknown, status = 200) => {
+    const res = {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+      clone: () => res,
+    }
+    return res
+  }
+  const expired = () =>
+    response({ error: "ExpiredToken", message: "Token has expired" }, 400)
+  const session = (n: number) => ({
+    accessJwt: `access-${n}`,
+    refreshJwt: `refresh-${n}`,
+    did: "did:plc:alice",
+    handle: "alice.example.com",
+  })
+  const bearer = (init?: RequestInit) =>
+    (init?.headers as Record<string, string> | undefined)?.Authorization
+
+  beforeEach(() => {
+    process.env.BLUESKY_HANDLE = "alice.example.com"
+    process.env.BLUESKY_APP_PASSWORD = "app-password"
+  })
+
+  it("refreshes an expired access token and retries the call once", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("createSession")) return response(session(1))
+      if (url.endsWith("refreshSession")) {
+        expect(bearer(init)).toBe("Bearer refresh-1")
+        return response(session(2))
+      }
+      return bearer(init) === "Bearer access-2"
+        ? response({ feed: [] })
+        : expired()
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const { xrpc, getSession } = await import("./session.js")
+
+    await expect(xrpc("app.bsky.feed.getTimeline")).resolves.toEqual({
+      feed: [],
+    })
+    expect((await getSession()).accessJwt).toBe("access-2")
+    const urls = fetchMock.mock.calls.map(([url]) => url.split("/").pop())
+    expect(urls).toEqual([
+      "com.atproto.server.createSession",
+      "app.bsky.feed.getTimeline",
+      "com.atproto.server.refreshSession",
+      "app.bsky.feed.getTimeline",
+    ])
+  })
+
+  it("logs in again when the refresh is rejected", async () => {
+    let logins = 0
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("createSession")) return response(session(++logins * 10))
+      if (url.endsWith("refreshSession"))
+        return response({ error: "ExpiredToken" }, 400)
+      return bearer(init) === "Bearer access-20"
+        ? response({ ok: true })
+        : expired()
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const { xrpc } = await import("./session.js")
+
+    await expect(xrpc("app.bsky.actor.getProfile")).resolves.toEqual({
+      ok: true,
+    })
+    expect(logins).toBe(2)
+  })
+
+  it("retries only once and then surfaces the error", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("createSession")) return response(session(1))
+      if (url.endsWith("refreshSession")) return response(session(2))
+      return expired()
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const { xrpc } = await import("./session.js")
+
+    await expect(xrpc("app.bsky.feed.getTimeline")).rejects.toThrow(
+      /getTimeline failed \(400\)/,
+    )
+    const calls = fetchMock.mock.calls.filter(([url]) =>
+      url.endsWith("getTimeline"),
+    )
+    expect(calls).toHaveLength(2)
+  })
+
+  it("does not refresh on unrelated errors", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("createSession")) return response(session(1))
+      return response({ error: "InvalidRequest" }, 400)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const { xrpc } = await import("./session.js")
+
+    await expect(xrpc("app.bsky.feed.getTimeline")).rejects.toThrow(
+      /failed \(400\)/,
+    )
+    expect(
+      fetchMock.mock.calls.some(([url]) => url.endsWith("refreshSession")),
+    ).toBe(false)
+  })
+})

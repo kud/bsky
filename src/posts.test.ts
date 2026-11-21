@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 vi.mock("./session.js", () => ({
   getSession: vi.fn(),
+  authFetch: vi.fn(),
   xrpc: vi.fn(),
   PDS: "https://bsky.social",
 }))

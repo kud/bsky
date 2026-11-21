@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { extname } from "node:path"
-import { getSession, PDS, xrpc } from "./session.js"
+import { authFetch, getSession, PDS, xrpc } from "./session.js"
 import { extractFacets } from "./facets.js"
 import {
   getPostRef,
@@ -27,13 +27,9 @@ const mimeType = (filePath: string): string => {
 }
 
 export const uploadBlob = async (imagePath: string): Promise<unknown> => {
-  const { accessJwt } = await getSession()
-  const res = await fetch(`${PDS}/xrpc/com.atproto.repo.uploadBlob`, {
+  const res = await authFetch(`${PDS}/xrpc/com.atproto.repo.uploadBlob`, {
     method: "POST",
-    headers: {
-      "Content-Type": mimeType(imagePath),
-      Authorization: `Bearer ${accessJwt}`,
-    },
+    headers: { "Content-Type": mimeType(imagePath) },
     body: readFileSync(imagePath),
   })
   if (!res.ok)
