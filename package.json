@@ -1,6 +1,6 @@
 {
   "name": "@kud/bsky",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A Bluesky (AT Protocol) client library for Node — post, thread, reply, quote, engage, read, and search",
   "type": "module",
   "license": "MIT",
